@@ -35,6 +35,11 @@ const validRegister = {
   password: "Str0ng!Pass",
 };
 
+// A well-formed email (64-char local part, 195-char domain) that is 260
+// characters long, so only the max(255) rule can reject it — not the
+// email format check.
+const tooLongEmail = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.com`;
+
 function expectValidationError(res, fields) {
   expect(res.status).toBe(400);
   expect(res.body.error).toBe("Validation failed");
@@ -108,13 +113,32 @@ describe("auth routes", () => {
       );
     });
 
+    it.each([
+      ["email", { password: validLogin.password }],
+      ["password", { email: validLogin.email }],
+    ])(
+      "should not be able to login when %s is missing",
+      async (field, payload) => {
+        const res = await request(app).post("/api/auth/login").send(payload);
+
+        expectValidationError(res, [field]);
+      }
+    );
+
     it("should not be able to login with an email longer than 255 characters", async () => {
-      const email = `${"a".repeat(250)}@example.com`;
       const res = await request(app)
         .post("/api/auth/login")
-        .send({ email, password: "password123" });
+        .send({ email: tooLongEmail, password: "password123" });
 
       expectValidationError(res, ["email"]);
+    });
+
+    it("should not be able to login with a password longer than 255 characters", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: validLogin.email, password: "a".repeat(256) });
+
+      expectValidationError(res, ["password"]);
     });
 
     it("should not be able to login with unknown extra fields", async () => {
@@ -205,6 +229,45 @@ describe("auth routes", () => {
 
       expectValidationError(res, ["name"]);
     });
+
+    it("should not be able to register with a whitespace-only name", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, name: "   " });
+
+      expectValidationError(res, ["name"]);
+    });
+
+    it("should not be able to register with a name longer than 255 characters", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, name: "a".repeat(256) });
+
+      expectValidationError(res, ["name"]);
+    });
+
+    it("should not be able to register with an email longer than 255 characters", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, email: tooLongEmail });
+
+      expectValidationError(res, ["email"]);
+    });
+
+    it.each([
+      ["an 8-character password", { password: "Abcde1!x" }],
+      ["a 30-character password", { password: `Aa1!${"x".repeat(26)}` }],
+      ["a 3-character name", { name: "Joe" }],
+    ])(
+      "should be able to register with boundary value: %s",
+      async (_label, overrides) => {
+        const res = await request(app)
+          .post("/api/auth/register")
+          .send({ ...validRegister, ...overrides });
+
+        expect(res.status).toBe(201);
+      }
+    );
 
     it("should not be able to register with unknown extra fields", async () => {
       const res = await request(app)

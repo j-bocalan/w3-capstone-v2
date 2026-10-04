@@ -53,6 +53,7 @@ Using schemas for consistent workflow and implementation for future endpoints. P
   - string
   - max:255
   - min: 3
+  - trimmed before length checks (whitespace-only is rejected)
 - reject empty values
 - reject extra inputs
 
