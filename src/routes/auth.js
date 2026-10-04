@@ -3,20 +3,16 @@ const router = express.Router();
 const User = require("../models/User");
 const { signToken } = require("../utils/jwt");
 const logger = require("../utils/logger");
+const { bodyValidate } = require("../middleware/validate");
+const { loginSchema, registerSchema } = require("../schemas/authSchemas");
 
 /**
  * POST /api/auth/register
  * Create a new user account and return a JWT.
  */
-router.post("/register", async (req, res, next) => {
+router.post("/register", bodyValidate(registerSchema), async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
-
-    if (!email || !password || !name) {
-      return res.status(400).json({
-        error: "Missing required fields: email, password, name",
-      });
-    }
 
     // Check for existing user
     const existing = await User.findByEmail(email);
@@ -42,15 +38,9 @@ router.post("/register", async (req, res, next) => {
  * POST /api/auth/login
  * Authenticate with email/password and receive a JWT.
  */
-router.post("/login", async (req, res, next) => {
+router.post("/login", bodyValidate(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        error: "Missing required fields: email, password",
-      });
-    }
 
     const user = await User.findByEmail(email);
     if (!user) {
