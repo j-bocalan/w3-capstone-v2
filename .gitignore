@@ -5,3 +5,5 @@ coverage/
 .DS_Store
 dist/
 *:Zone.Identifier
+.idea/
+.claude/worktrees/
