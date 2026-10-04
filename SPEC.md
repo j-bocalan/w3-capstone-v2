@@ -46,6 +46,7 @@ Using schemas for consistent workflow and implementation for future endpoints. P
   - string
   - min:8 register only
   - max:30 register only
+  - at least one digit, one uppercase letter, and one symbol — register only
   - max:255 login
 - name
   - required

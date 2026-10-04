@@ -1,0 +1,217 @@
+/**
+ * Feature tests for auth routes request validation.
+ *
+ * Encodes SPEC.md: invalid payloads are rejected with a 400 and
+ * { error: "Validation failed", inputs: { <field>: <message> } } before
+ * any DB lookup; valid payloads continue to the route handler unchanged.
+ */
+
+jest.mock("../../src/models/User");
+jest.mock("../../src/utils/logger", () => ({
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+}));
+
+const request = require("supertest");
+const app = require("../../src/index");
+const User = require("../../src/models/User");
+
+const activeUser = {
+  id: 2,
+  email: "alice@example.com",
+  name: "Alice Johnson",
+  role: "customer",
+  customer_tier: "gold",
+  status: "active",
+  password_hash: "$2a$10$hash",
+};
+
+const validLogin = { email: "alice@example.com", password: "password123" };
+
+const validRegister = {
+  name: "Jane Doe",
+  email: "jane@example.com",
+  password: "Str0ng!Pass",
+};
+
+function expectValidationError(res, fields) {
+  expect(res.status).toBe(400);
+  expect(res.body.error).toBe("Validation failed");
+  expect(res.body.inputs).toBeDefined();
+  for (const field of fields) {
+    expect(res.body.inputs).toHaveProperty(field);
+  }
+  expect(User.findByEmail).not.toHaveBeenCalled();
+}
+
+describe("auth routes", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe("POST /api/auth/login", () => {
+    beforeEach(() => {
+      User.findByEmail.mockResolvedValue(activeUser);
+      User.verifyPassword.mockResolvedValue(true);
+    });
+
+    it("should be able to login with valid email and password", async () => {
+      const res = await request(app).post("/api/auth/login").send(validLogin);
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.user.email).toBe(activeUser.email);
+      expect(User.findByEmail).toHaveBeenCalledWith(validLogin.email);
+    });
+
+    it("should not be able to login with null values", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: null, password: null });
+
+      expectValidationError(res, ["email", "password"]);
+    });
+
+    it("should not be able to login with empty string values", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: "", password: "" });
+
+      expectValidationError(res, ["email", "password"]);
+    });
+
+    it("should not be able to login with empty body", async () => {
+      const res = await request(app).post("/api/auth/login").send({});
+
+      expectValidationError(res, ["email", "password"]);
+    });
+
+    it("should not be able to login with invalid email format", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: "not-an-email", password: "password123" });
+
+      expectValidationError(res, ["email"]);
+    });
+
+    it("should accept possible escape strings in the payload when email is valid", async () => {
+      const password = "p'\"\\; DROP TABLE users;-- <script>";
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email: validLogin.email, password });
+
+      expect(res.status).toBe(200);
+      expect(User.verifyPassword).toHaveBeenCalledWith(
+        password,
+        activeUser.password_hash
+      );
+    });
+
+    it("should not be able to login with an email longer than 255 characters", async () => {
+      const email = `${"a".repeat(250)}@example.com`;
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ email, password: "password123" });
+
+      expectValidationError(res, ["email"]);
+    });
+
+    it("should not be able to login with unknown extra fields", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send({ ...validLogin, role: "admin" });
+
+      expectValidationError(res, ["role"]);
+    });
+  });
+
+  describe("POST /api/auth/register", () => {
+    beforeEach(() => {
+      User.findByEmail.mockResolvedValue(null);
+      User.create.mockImplementation(({ email, name }) =>
+        Promise.resolve({ id: 11, email, name, role: "customer" })
+      );
+    });
+
+    it("should be able to register when all fields are valid", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send(validRegister);
+
+      expect(res.status).toBe(201);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.user.email).toBe(validRegister.email);
+      expect(User.create).toHaveBeenCalledWith(validRegister);
+    });
+
+    it.each(["name", "email", "password"])(
+      "should not be able to register when %s is missing",
+      async (field) => {
+        const payload = { ...validRegister };
+        delete payload[field];
+
+        const res = await request(app).post("/api/auth/register").send(payload);
+
+        expectValidationError(res, [field]);
+      }
+    );
+
+    it("should not be able to register with an invalid email", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, email: "jane@" });
+
+      expectValidationError(res, ["email"]);
+    });
+
+    it.each([
+      ["missing a digit", "NoDigits!!"],
+      ["missing an uppercase letter", "n0upper!!"],
+      ["missing a symbol", "NoSymbol123"],
+      ["shorter than 8 characters", "Sh0rt!"],
+      ["longer than 30 characters", `Aa1!${"x".repeat(27)}`],
+    ])(
+      "should not be able to register when password is %s",
+      async (_label, password) => {
+        const res = await request(app)
+          .post("/api/auth/register")
+          .send({ ...validRegister, password });
+
+        expectValidationError(res, ["password"]);
+      }
+    );
+
+    it("should not be able to register with empty string values", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ name: "", email: "", password: "" });
+
+      expectValidationError(res, ["name", "email", "password"]);
+    });
+
+    it("should not be able to register with null values", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ name: null, email: null, password: null });
+
+      expectValidationError(res, ["name", "email", "password"]);
+    });
+
+    it("should not be able to register with a name shorter than 3 characters", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, name: "Jo" });
+
+      expectValidationError(res, ["name"]);
+    });
+
+    it("should not be able to register with unknown extra fields", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, role: "admin" });
+
+      expectValidationError(res, ["role"]);
+    });
+  });
+});
