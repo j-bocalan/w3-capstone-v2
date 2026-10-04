@@ -11,13 +11,13 @@ Using schemas for consistent workflow and implementation for future endpoints. P
 
 ### Affected Files & Routes
 
-- POST /api/login
-- POST /api/register
+- POST /api/auth/login
+- POST /api/auth/register
 
-- src/middlewares/* new files only
+- src/middleware/validate.js new files only
 - src/routes/auth.js existing
 - tests/ new files only, none exists for this
-- schemas/* new files only, none exists for this
+- src/schemas/authSchemas.js new files only, none exists for this
 
 ### Implementing Order
 
@@ -59,8 +59,8 @@ Using schemas for consistent workflow and implementation for future endpoints. P
 
 ### Behavior
 
-- always returns a 400 when validation fails
-- has default error message when error is due to validation
+- always returns a 422 when validation fails (400 stays free for errors raised by the route itself)
+- has default error message ("Validation failed") when error is due to validation
 - issues with input will be kept in `inputs: {}` object 
 - when inputs are valid they will go within the route file to continue it's process
 - client/consumers interaction with the endpoint remains to be unchanged.
@@ -76,7 +76,7 @@ Using schemas for consistent workflow and implementation for future endpoints. P
   - malformed values must be rejected
   - Empty values are must be rejected
 - Valid inputs must be accepted but still checked by the DB process.
-- Invalid requests returns a 400 and valid error mapping response.
+- Invalid requests returns a 422 and valid error mapping response.
 - specs reviewer passes
 - test auditor passes
 

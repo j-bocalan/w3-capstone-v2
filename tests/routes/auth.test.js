@@ -1,7 +1,7 @@
 /**
  * Feature tests for auth routes request validation.
  *
- * Encodes SPEC.md: invalid payloads are rejected with a 400 and
+ * Encodes SPEC.md: invalid payloads are rejected with a 422 and
  * { error: "Validation failed", inputs: { <field>: <message> } } before
  * any DB lookup; valid payloads continue to the route handler unchanged.
  */
@@ -41,7 +41,7 @@ const validRegister = {
 const tooLongEmail = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.com`;
 
 function expectValidationError(res, fields) {
-  expect(res.status).toBe(400);
+  expect(res.status).toBe(422);
   expect(res.body.error).toBe("Validation failed");
   expect(res.body.inputs).toBeDefined();
   for (const field of fields) {
@@ -148,6 +148,32 @@ describe("auth routes", () => {
 
       expectValidationError(res, ["role"]);
     });
+
+    it.each([
+      ["email", "an object", { $ne: "" }],
+      ["email", "an array", ["alice@example.com"]],
+      ["email", "a number", 123],
+      ["password", "an object", { $ne: "" }],
+      ["password", "an array", ["password123"]],
+      ["password", "a number", 12345678],
+    ])(
+      "should not be able to login when %s is %s",
+      async (field, _label, value) => {
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ ...validLogin, [field]: value });
+
+        expectValidationError(res, [field]);
+      }
+    );
+
+    it("should not be able to login when the body is an array", async () => {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .send([validLogin]);
+
+      expectValidationError(res, ["body"]);
+    });
   });
 
   describe("POST /api/auth/register", () => {
@@ -205,6 +231,16 @@ describe("auth routes", () => {
         expectValidationError(res, ["password"]);
       }
     );
+
+    it("should not echo the submitted password back in the validation error", async () => {
+      const password = "secretpassword";
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send({ ...validRegister, password });
+
+      expectValidationError(res, ["password"]);
+      expect(JSON.stringify(res.body)).not.toContain(password);
+    });
 
     it("should not be able to register with empty string values", async () => {
       const res = await request(app)
@@ -275,6 +311,35 @@ describe("auth routes", () => {
         .send({ ...validRegister, role: "admin" });
 
       expectValidationError(res, ["role"]);
+    });
+
+    it.each([
+      ["name", "an object", { $ne: "" }],
+      ["name", "an array", ["Jane Doe"]],
+      ["name", "a number", 12345],
+      ["email", "an object", { $ne: "" }],
+      ["email", "an array", ["jane@example.com"]],
+      ["email", "a number", 123],
+      ["password", "an object", { $ne: "" }],
+      ["password", "an array", ["Str0ng!Pass"]],
+      ["password", "a number", 12345678],
+    ])(
+      "should not be able to register when %s is %s",
+      async (field, _label, value) => {
+        const res = await request(app)
+          .post("/api/auth/register")
+          .send({ ...validRegister, [field]: value });
+
+        expectValidationError(res, [field]);
+      }
+    );
+
+    it("should not be able to register when the body is an array", async () => {
+      const res = await request(app)
+        .post("/api/auth/register")
+        .send([validRegister]);
+
+      expectValidationError(res, ["body"]);
     });
   });
 });
